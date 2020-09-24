@@ -44,7 +44,7 @@ Lazy worker pool:
 Smooth exit:
 - When the stdin is closed from the outside, URLGenerator ends.
 - When channel of URLGenerator is closed, Workers resign.
-- After Last worker, main function completes the program.
+- After Last worker, main function completes the progrhttp.DefaultClientam.
 */
 
 type controller struct {
@@ -52,6 +52,8 @@ type controller struct {
 	sourceOfTasks           <-chan string
 	wg                      sync.WaitGroup
 	availableNumberOfWorker uint
+
+	httpClient http.Client
 
 	// A place for extension if you need regular expressions, for example.
 	searchStrategy func(source io.Reader, desiredWord string) (amount uint, err error)
@@ -64,9 +66,10 @@ func NewController(sourceOfTasks <-chan string, maxNumberOfWorker uint, neededWo
 	}
 
 	pc = &controller{
-		getDownToWork:           make(chan struct{}, maxNumberOfWorker * 2),
+		getDownToWork:           make(chan struct{}, maxNumberOfWorker*2),
 		sourceOfTasks:           sourceOfTasks,
 		availableNumberOfWorker: maxNumberOfWorker - 1,
+		httpClient:              *http.DefaultClient,
 		searchStrategy:          EntranceCount,
 		neededWord:              neededWord,
 	}
@@ -99,13 +102,14 @@ func (pc *controller) Worker() {
 	fmt.Print("start worker\n")
 	for URL := range pc.sourceOfTasks {
 		pc.getDownToWork <- struct{}{}
-		body, err := ConnectionEstablish(URL)
+
+		resp, err := pc.httpClient.Get(URL)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Count for ", URL, ": ", err.Error())
 			continue
 		}
-		amount, err := EntranceCount(body, pc.neededWord)
-		body.Close()
+		amount, err := EntranceCount(resp.Body, pc.neededWord)
+		resp.Body.Close()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Count for ", URL, ": ", err.Error())
 			continue
@@ -115,14 +119,6 @@ func (pc *controller) Worker() {
 	fmt.Print("Stop worker\n")
 	pc.wg.Done()
 
-}
-
-func ConnectionEstablish(url string) (source io.ReadCloser, err error) {
-	resp, err := http.DefaultClient.Get(url) // TODO: not default client
-	if err != nil {
-		return nil, err
-	}
-	return resp.Body, nil
 }
 
 func EntranceCount(source io.Reader, desiredWord string) (amount uint, err error) {
