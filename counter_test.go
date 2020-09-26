@@ -30,18 +30,26 @@ func TestURLGenerator(t *testing.T) {
 	}
 }
 
-func TestEntranceCount(t *testing.T) {
+// for easy test overflow.
+func TestStreamEntranceCount(t *testing.T) {
 	type args struct {
 		source      io.Reader
 		desiredWord string
 	}
+	type implArgs struct {
+		StreamSearcherBuffSize int
+	}
 	tests := []struct {
-		name       string
-		args       args
-		wantAmount uint
-		wantErr    bool
+		name         string
+		args         args
+		implicitArgs implArgs
+		wantAmount   uint
+		wantErr      bool
 	}{{
 		name: "regular count",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 32 * 1024,
+		},
 		args: args{
 			source: strings.NewReader( /* language=HTML */ `
 <!DOCTYPE html>
@@ -80,25 +88,71 @@ func TestEntranceCount(t *testing.T) {
 			desiredWord: "go",
 		},
 		wantAmount: 6,
-		wantErr: false,
+		wantErr:    false,
 	}, {
 		name: "empty count",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 32 * 1024,
+		},
 		args: args{
 			source:      strings.NewReader(""),
 			desiredWord: "go",
 		},
 		wantAmount: 0,
 		wantErr:    false,
-	}}
+	}, {
+		name: "in first chunk",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 10, // for easy test overflow
+		},
+		args: args{
+			source:      strings.NewReader("---aaaa--+---------+"),
+			desiredWord: "aaaa",
+		},
+		wantAmount: 1,
+		wantErr:    false,
+	}, {
+		name: "in second chunk",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 10},
+		args: args{
+			source:      strings.NewReader("---------+---aaaa--+"),
+			desiredWord: "aaaa",
+		},
+		wantAmount: 1,
+		wantErr:    false,
+	}, {
+		name: "between chunk",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 10},
+		args: args{
+			source:      strings.NewReader("--------aaaa-------+"),
+			desiredWord: "aaaa",
+		},
+		wantAmount: 1,
+		wantErr:    false,
+	}, {
+		name: "all cases",
+		implicitArgs: implArgs{
+			StreamSearcherBuffSize: 10},
+		args: args{
+			source:      strings.NewReader("aaaa----aaaa----aaaa"),
+			desiredWord: "aaaa",
+		},
+		wantAmount: 3,
+		wantErr:    false,
+	},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotAmount, err := EntranceCount(tt.args.source, tt.args.desiredWord)
+			StreamSearcherBuffSize = tt.implicitArgs.StreamSearcherBuffSize
+			gotAmount, err := StreamEntranceCount(tt.args.source, tt.args.desiredWord)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("EntranceCount() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("StreamEntranceCount() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotAmount != tt.wantAmount {
-				t.Errorf("EntranceCount() gotAmount = %v, want %v", gotAmount, tt.wantAmount)
+				t.Errorf("StreamEntranceCount() gotAmount = %v, want %v", gotAmount, tt.wantAmount)
 			}
 		})
 	}
